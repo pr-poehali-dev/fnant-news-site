@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -7,68 +7,168 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import Icon from '@/components/ui/icon'
 
+const CHAT_API = 'https://functions.poehali.dev/40f65b49-7c40-4f4f-89b7-d57d75ddf17c'
+
 interface Message {
   id: number
-  user: string
-  text: string
+  username: string
+  message: string
   avatar: string
   color: string
-  title?: string
+  title?: string | null
+  created_at?: string
+}
+
+const AVATARS = ['😎', '🎮', '👾', '🤖', '💀', '🔥', '⚡', '🎭', '🦊', '🐺']
+const COLORS = ['#a855f7', '#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#ec4899', '#06b6d4', '#f97316']
+
+const playClick = () => {
+  const ctx = new AudioContext()
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  osc.frequency.value = 800
+  osc.type = 'sine'
+  gain.gain.value = 0.1
+  osc.start()
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1)
+  osc.stop(ctx.currentTime + 0.1)
+}
+
+const playSend = () => {
+  const ctx = new AudioContext()
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  osc.frequency.value = 600
+  osc.type = 'triangle'
+  gain.gain.value = 0.12
+  osc.start()
+  osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.15)
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2)
+  osc.stop(ctx.currentTime + 0.2)
+}
+
+const playReceive = () => {
+  const ctx = new AudioContext()
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  osc.frequency.value = 1000
+  osc.type = 'sine'
+  gain.gain.value = 0.06
+  osc.start()
+  osc.frequency.exponentialRampToValueAtTime(500, ctx.currentTime + 0.1)
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15)
+  osc.stop(ctx.currentTime + 0.15)
 }
 
 const Index = () => {
   const [activeSection, setActiveSection] = useState('home')
-  const [messages, setMessages] = useState<Message[]>([
-    { id: 1, user: 'Админ', text: 'Добро пожаловать в официальный чат FNANT!', avatar: '👑', color: '#22c55e', title: '[Фанат]' },
-    { id: 2, user: 'Player1', text: 'Не могу дождаться релиза!', avatar: '🎮', color: '#3b82f6' },
-  ])
+  const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState('')
+  const [username, setUsername] = useState('')
   const [hasFanTitle, setHasFanTitle] = useState(false)
+  const [userAvatar] = useState(() => AVATARS[Math.floor(Math.random() * AVATARS.length)])
+  const [userColor] = useState(() => COLORS[Math.floor(Math.random() * COLORS.length)])
+  const [isSending, setIsSending] = useState(false)
+  const lastIdRef = useRef(0)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const pollingRef = useRef<ReturnType<typeof setInterval>>()
 
   const news = [
-    { 
-      id: 1, 
-      title: 'Анонс даты релиза!', 
-      date: '15.02.2026', 
-      text: 'Официальная дата выхода FNANT - 19 февраля 2026 года! Приготовьтесь к самому страшному хоррору года.' 
-    },
-    { 
-      id: 2, 
-      title: 'Новый трейлер доступен', 
-      date: '10.02.2026', 
-      text: 'Эксклюзивный трейлер уже на YouTube! Смотрите в разделе "Трейлер".' 
-    },
-    { 
-      id: 3, 
-      title: 'Открыта система титулов', 
-      date: '01.02.2026', 
-      text: 'Теперь вы можете получить эксклюзивный титул [Фанат] абсолютно бесплатно!' 
-    },
+    { id: 1, title: 'Анонс даты релиза!', date: '15.02.2026', text: 'Официальная дата выхода FNANT - 19 февраля 2026 года! Приготовьтесь к самому страшному хоррору года.' },
+    { id: 2, title: 'Новый трейлер доступен', date: '10.02.2026', text: 'Эксклюзивный трейлер уже на YouTube! Смотрите в разделе "Трейлер".' },
+    { id: 3, title: 'Открыта система титулов', date: '01.02.2026', text: 'Теперь вы можете получить эксклюзивный титул [Фанат] абсолютно бесплатно!' },
   ]
 
   const faqItems = [
     { q: 'Что такое FNANT?', a: 'Five Nights at No Texture\'s - это инди-хоррор игра с уникальной атмосферой и геймплеем, вдохновленным классическими хоррорами.' },
     { q: 'Когда выйдет игра?', a: 'Официальный релиз запланирован на 19 февраля 2026 года.' },
-    { q: 'На каких платформах будет доступна игра?', a: 'Игра выйдет на ПК (Windows), позже планируется выход на другие платформы.' },
+    { q: 'На каких платформах будет доступна игра?', a: 'Телефон, ПК (Windows 10-11 64-bit).' },
+    { q: 'В игре будет мультиплеер?', a: 'Да, будет!' },
     { q: 'Будут ли обновления после релиза?', a: 'Да! Мы планируем регулярные обновления с новым контентом и исправлениями.' },
     { q: 'Как получить титул [Фанат]?', a: 'Просто нажмите кнопку "Получить титул" в разделе "Титулы" и скопируйте его!' },
   ]
 
-  const sendMessage = () => {
-    if (!newMessage.trim()) return
-    const msg: Message = {
-      id: messages.length + 1,
-      user: 'Вы',
-      text: newMessage,
-      avatar: '😎',
-      color: '#a855f7',
-      title: hasFanTitle ? '[Фанат]' : undefined
+  const fetchMessages = useCallback(async () => {
+    try {
+      const res = await fetch(`${CHAT_API}?after_id=${lastIdRef.current}`)
+      const data = await res.json()
+      if (data.messages && data.messages.length > 0) {
+        setMessages(prev => {
+          const existingIds = new Set(prev.map(m => m.id))
+          const newMsgs = data.messages.filter((m: Message) => !existingIds.has(m.id))
+          if (newMsgs.length > 0) {
+            if (prev.length > 0) playReceive()
+            lastIdRef.current = Math.max(...data.messages.map((m: Message) => m.id))
+            return [...prev, ...newMsgs]
+          }
+          return prev
+        })
+      }
+    } catch (e) {
+      console.error('Chat fetch error:', e)
     }
-    setMessages([...messages, msg])
-    setNewMessage('')
+  }, [])
+
+  useEffect(() => {
+    if (activeSection === 'chat') {
+      fetchMessages()
+      pollingRef.current = setInterval(fetchMessages, 2000)
+      return () => clearInterval(pollingRef.current)
+    } else {
+      clearInterval(pollingRef.current)
+    }
+  }, [activeSection, fetchMessages])
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [messages])
+
+  const sendMessage = async () => {
+    if (!newMessage.trim() || !username.trim() || isSending) return
+    setIsSending(true)
+    playSend()
+
+    try {
+      const res = await fetch(CHAT_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: username.trim(),
+          message: newMessage.trim(),
+          avatar: userAvatar,
+          color: userColor,
+          title: hasFanTitle ? '[Фанат]' : null
+        })
+      })
+      const msg = await res.json()
+      setMessages(prev => {
+        if (prev.some(m => m.id === msg.id)) return prev
+        lastIdRef.current = Math.max(lastIdRef.current, msg.id)
+        return [...prev, msg]
+      })
+      setNewMessage('')
+    } catch (e) {
+      console.error('Send error:', e)
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  const handleNav = (section: string) => {
+    playClick()
+    setActiveSection(section)
   }
 
   const claimTitle = () => {
+    playClick()
     setHasFanTitle(true)
     navigator.clipboard.writeText('[Фанат]')
   }
@@ -77,13 +177,13 @@ const Index = () => {
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950">
       <nav className="fixed top-0 w-full z-50 glass-panel border-b border-primary/20">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-3xl font-orbitron font-bold glow-text text-primary">FNANT</h1>
+          <h1 className="text-3xl font-orbitron font-bold glow-text text-primary cursor-pointer" onClick={() => handleNav('home')}>FNANT</h1>
           <div className="flex gap-2 flex-wrap">
             {['home', 'news', 'trailer', 'faq', 'chat', 'titles'].map((section) => (
               <Button
                 key={section}
                 variant={activeSection === section ? 'default' : 'ghost'}
-                onClick={() => setActiveSection(section)}
+                onClick={() => handleNav(section)}
                 className={`font-orbitron ${activeSection === section ? 'glow-border' : ''}`}
               >
                 {section === 'home' && 'Главная'}
@@ -101,30 +201,29 @@ const Index = () => {
       <main className="container mx-auto px-4 pt-28 pb-12">
         {activeSection === 'home' && (
           <div className="space-y-8 animate-fade-in">
-            <div className="text-center space-y-4">
-              <h2 className="text-4xl md:text-6xl font-orbitron font-black glow-text">
-                Five Nights at No Texture's
-              </h2>
-              <p className="text-xl text-muted-foreground">
-                Приготовьтесь к незабываемому хоррор-опыту
-              </p>
-              <div className="flex gap-4 justify-center items-center flex-wrap">
-                <Badge className="text-lg px-4 py-2 bg-primary glow-border font-orbitron">
-                  Релиз: 19.02.2026
-                </Badge>
-                <Badge variant="outline" className="text-lg px-4 py-2 font-orbitron">
-                  2026
-                </Badge>
-              </div>
-            </div>
-
-            <div className="relative overflow-hidden rounded-xl mb-8">
-              <img 
-                src="https://cdn.poehali.dev/projects/d893684c-7cd3-4963-a519-ce9494fdef47/files/653cc1de-1459-409b-9715-8a64aedb7466.jpg" 
-                alt="FNANT Atmosphere"
-                className="w-full h-[400px] object-cover opacity-60"
+            <div className="relative overflow-hidden rounded-xl">
+              <img
+                src="https://i.ytimg.com/vi/VrZF2H6gMnQ/maxresdefault.jpg"
+                alt="FNANT"
+                className="w-full h-[500px] object-cover"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/50 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-transparent" />
+              <div className="absolute bottom-0 left-0 right-0 p-8 text-center space-y-4">
+                <h2 className="text-4xl md:text-6xl font-orbitron font-black glow-text">
+                  Five Nights at No Texture's
+                </h2>
+                <p className="text-xl text-gray-300">
+                  Приготовьтесь к незабываемому хоррор-опыту
+                </p>
+                <div className="flex gap-4 justify-center items-center flex-wrap">
+                  <Badge className="text-lg px-4 py-2 bg-primary glow-border font-orbitron">
+                    Релиз: 19.02.2026
+                  </Badge>
+                  <Badge variant="outline" className="text-lg px-4 py-2 font-orbitron">
+                    2026
+                  </Badge>
+                </div>
+              </div>
             </div>
 
             <Card className="glass-panel p-8 glow-border">
@@ -136,11 +235,11 @@ const Index = () => {
                     Пять ночей, полных напряжения, неожиданностей и страха. Сможете ли вы пережить все ночи?
                   </p>
                   <div className="flex gap-2 flex-wrap">
-                    <Button onClick={() => setActiveSection('trailer')} className="glow-border">
+                    <Button onClick={() => handleNav('trailer')} className="glow-border">
                       <Icon name="Play" className="mr-2" />
                       Смотреть трейлер
                     </Button>
-                    <Button onClick={() => setActiveSection('chat')} variant="outline">
+                    <Button onClick={() => handleNav('chat')} variant="outline">
                       <Icon name="MessageCircle" className="mr-2" />
                       Присоединиться к чату
                     </Button>
@@ -229,44 +328,81 @@ const Index = () => {
         {activeSection === 'chat' && (
           <div className="space-y-6 animate-fade-in">
             <h2 className="text-4xl font-orbitron font-bold glow-text">Чат сообщества</h2>
-            <Card className="glass-panel glow-border">
-              <ScrollArea className="h-[500px] p-6">
-                <div className="space-y-4">
-                  {messages.map((msg) => (
-                    <div key={msg.id} className="flex gap-3 p-3 glass-panel rounded-lg hover:bg-primary/5 transition-colors">
-                      <div className="text-3xl">{msg.avatar}</div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="font-orbitron font-bold" style={{ color: msg.color }}>
-                            {msg.user}
-                          </span>
-                          {msg.title && (
-                            <Badge className="bg-primary/20 text-primary glow-border text-xs">
-                              {msg.title}
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-muted-foreground">{msg.text}</p>
-                      </div>
-                    </div>
-                  ))}
+
+            {!username.trim() ? (
+              <Card className="glass-panel p-8 glow-border max-w-md mx-auto text-center space-y-4">
+                <h3 className="text-xl font-orbitron font-bold text-primary">Введите ваше имя</h3>
+                <Input
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && username.trim() && playClick()}
+                  placeholder="Ваш ник..."
+                  className="glass-panel border-primary/20 text-center text-lg"
+                  maxLength={50}
+                />
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-2xl">{userAvatar}</span>
+                  <span style={{ color: userColor }} className="font-orbitron font-bold">{username || '...'}</span>
+                  {hasFanTitle && <Badge className="bg-primary/20 text-primary text-xs">[Фанат]</Badge>}
                 </div>
-              </ScrollArea>
-              <div className="p-4 border-t border-primary/20">
-                <div className="flex gap-2">
-                  <Input
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                    placeholder="Введите сообщение..."
-                    className="glass-panel border-primary/20"
-                  />
-                  <Button onClick={sendMessage} className="glow-border">
-                    <Icon name="Send" />
+                <p className="text-sm text-muted-foreground">Введите имя и нажмите Enter чтобы войти в чат</p>
+              </Card>
+            ) : (
+              <Card className="glass-panel glow-border">
+                <div className="p-3 border-b border-primary/20 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{userAvatar}</span>
+                    <span style={{ color: userColor }} className="font-orbitron font-bold text-sm">{username}</span>
+                    {hasFanTitle && <Badge className="bg-primary/20 text-primary text-xs">[Фанат]</Badge>}
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => setUsername('')} className="text-xs">
+                    <Icon name="LogOut" size={14} className="mr-1" />
+                    Сменить ник
                   </Button>
                 </div>
-              </div>
-            </Card>
+                <ScrollArea className="h-[450px] p-6" ref={scrollRef}>
+                  <div className="space-y-4">
+                    {messages.length === 0 && (
+                      <p className="text-center text-muted-foreground py-8">Чат пуст. Напишите первое сообщение!</p>
+                    )}
+                    {messages.map((msg) => (
+                      <div key={msg.id} className="flex gap-3 p-3 glass-panel rounded-lg hover:bg-primary/5 transition-colors">
+                        <div className="text-3xl">{msg.avatar}</div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="font-orbitron font-bold" style={{ color: msg.color }}>
+                              {msg.username}
+                            </span>
+                            {msg.title && (
+                              <Badge className="bg-primary/20 text-primary glow-border text-xs">
+                                {msg.title}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-muted-foreground">{msg.message}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+                <div className="p-4 border-t border-primary/20">
+                  <div className="flex gap-2">
+                    <Input
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                      placeholder="Введите сообщение..."
+                      className="glass-panel border-primary/20"
+                      maxLength={500}
+                      disabled={isSending}
+                    />
+                    <Button onClick={sendMessage} className="glow-border" disabled={isSending}>
+                      <Icon name="Send" />
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            )}
           </div>
         )}
 

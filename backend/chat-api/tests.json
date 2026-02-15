@@ -1,0 +1,19 @@
+{
+  "tests": [
+    {
+      "name": "Send message",
+      "method": "POST",
+      "path": "/",
+      "body": {"username": "TestUser", "message": "Hello FNANT!"},
+      "expectedStatus": 201,
+      "expectedBody": {"username": "string", "message": "string"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get messages",
+      "method": "GET",
+      "path": "/?after_id=0",
+      "expectedStatus": 200
+    }
+  ]
+}
